@@ -2,208 +2,161 @@
 <html lang="zh-Hant">
 <head>
   <meta charset="UTF-8" />
-  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>巡場掃描</title>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>巡場打卡</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
-
   <style>
     body {
       margin: 0;
-      font-family: "Microsoft JhengHei", sans-serif;
-      background: #111;
-      color: #fff;
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      background: #f4f6f8;
+      color: #222;
+    }
+    .wrap {
+      max-width: 520px;
+      margin: 0 auto;
+      padding: 20px;
+    }
+    .card {
+      background: #fff;
+      border-radius: 16px;
+      padding: 20px;
+      margin-top: 20px;
+      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+    }
+    h1 {
+      margin: 0 0 16px;
+      font-size: 24px;
       text-align: center;
     }
-
-    .wrap {
-      padding: 20px;
-    }
-
-    h1 {
-      margin-top: 10px;
-      font-size: 22px;
-    }
-
-    .status {
-      margin-top: 30px;
-      font-size: 26px;
-      padding: 20px;
+    .box {
       border-radius: 12px;
-      background: #222;
+      padding: 14px;
+      margin-top: 12px;
+      line-height: 1.6;
+      word-break: break-word;
+      background: #f2f4f7;
     }
-
     .ok {
-      background: #0f5132;
+      background: #e9f9ee;
+      color: #156f3d;
     }
-
     .err {
-      background: #842029;
-    }
-
-    .sub {
-      margin-top: 10px;
-      font-size: 14px;
-      color: #aaa;
+      background: #fdecec;
+      color: #9f1d1d;
     }
   </style>
 </head>
-
 <body>
-<div class="wrap">
-  <h1>巡場掃描中</h1>
-
-  <div id="statusBox" class="status">
-    初始化中...
+  <div class="wrap">
+    <div class="card">
+      <h1>巡場打卡</h1>
+      <div id="infoBox" class="box">載入中...</div>
+      <div id="statusBox" class="box">請稍候...</div>
+    </div>
   </div>
 
-  <div class="sub">
-    請將鏡頭對準 QR
-  </div>
-</div>
-
-<script>
+  <script>
     const LIFF_ID = '2009742928-hAmPBkaF';
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwMS-csTNSPXa53FmHGD6U5H7wUbAi77316Jnr-Zibz2TrqOY-WQ_3zAM5IttlEc2ay6Q/exec';
 
-// ===== QR 對照 =====
-const QR_MAP = {
-  'X1a9-Kq2P-mL8s': 'A1_STAIR',
-  'X2b4-Tr9N-pV3k': 'A2_STAIR',
-  'X3c7-Yu6M-zR1q': 'A3_STAIR',
-  'X4d2-Hj8W-nT5v': 'A4_STAIR',
-  'X5e6-Po3L-kC9x': 'A5_STAIR',
-  'X6f1-Bn7D-qM4r': 'A6_STAIR',
-  'X7g8-Lm2S-wF6t': 'A7_STAIR',
-  'T1h3-Zx9Q-vB2m': 'A1_TOILET',
-  'T3j5-Cv4E-nK8p': 'A3_TOILET',
-  'T7k9-As6R-yU1d': 'A7_TOILET'
-};
+    const POINT_NAME_MAP = {
+      'A1_STAIR': 'A1樓梯',
+      'A2_STAIR': 'A2樓梯',
+      'A3_STAIR': 'A3樓梯',
+      'A4_STAIR': 'A4樓梯',
+      'A5_STAIR': 'A5樓梯',
+      'A6_STAIR': 'A6樓梯',
+      'A7_STAIR': 'A7樓梯',
+      'A1_TOILET': 'A1廁所',
+      'A3_TOILET': 'A3廁所',
+      'A7_TOILET': 'A7廁所'
+    };
 
-const POINT_NAME_MAP = {
-  'A1_STAIR': 'A1樓梯',
-  'A2_STAIR': 'A2樓梯',
-  'A3_STAIR': 'A3樓梯',
-  'A4_STAIR': 'A4樓梯',
-  'A5_STAIR': 'A5樓梯',
-  'A6_STAIR': 'A6樓梯',
-  'A7_STAIR': 'A7樓梯',
-  'A1_TOILET': 'A1廁所',
-  'A3_TOILET': 'A3廁所',
-  'A7_TOILET': 'A7廁所'
-};
+    const infoBox = document.getElementById('infoBox');
+    const statusBox = document.getElementById('statusBox');
 
-let profile = { displayName: '', userId: '' };
-let scanning = false;
-
-const statusBox = document.getElementById('statusBox');
-
-// ===== 顯示 =====
-function show(msg, type='') {
-  statusBox.className = 'status';
-  if(type) statusBox.classList.add(type);
-  statusBox.textContent = msg;
-}
-
-// ===== 解碼 =====
-function decodeQR(raw) {
-  return QR_MAP[raw] || null;
-}
-
-// ===== 傳送 =====
-async function send(payload){
-  const res = await fetch(GAS_URL,{
-    method:'POST',
-    headers:{'Content-Type':'text/plain'},
-    body: JSON.stringify(payload)
-  });
-  return await res.json();
-}
-
-// ===== 掃描循環 =====
-async function startScanLoop(){
-  if(scanning) return;
-  scanning = true;
-
-  while(true){
-    try{
-      show('掃描中...');
-
-      const result = await liff.scanCodeV2();
-      const raw = result?.value?.trim();
-
-      if(!raw){
-        show('未讀取到', 'err');
-        await delay(1000);
-        continue;
-      }
-
-      const decoded = decodeQR(raw);
-
-      if(!decoded){
-        show('無效 QR', 'err');
-
-        await send({
-          displayName: profile.displayName,
-          userId: profile.userId,
-          qrRaw: raw,
-          decodedPoint: '',
-          pointName: '',
-          status: '失敗',
-          note: '無效QR'
-        });
-
-        await delay(1200);
-        continue;
-      }
-
-      const name = POINT_NAME_MAP[decoded] || decoded;
-
-      await send({
-        displayName: profile.displayName,
-        userId: profile.userId,
-        qrRaw: raw,
-        decodedPoint: decoded,
-        pointName: name,
-        status: '成功',
-        note: ''
-      });
-
-      show('✔ ' + name, 'ok');
-
-      await delay(1200);
-
-    }catch(e){
-      show('掃描失敗', 'err');
-      await delay(1500);
+    function setStatus(message, type = '') {
+      statusBox.className = 'box';
+      if (type) statusBox.classList.add(type);
+      statusBox.textContent = message;
     }
-  }
-}
 
-// ===== 工具 =====
-function delay(ms){
-  return new Promise(r=>setTimeout(r,ms));
-}
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
 
-// ===== 初始化 =====
-async function init(){
-  await liff.init({ liffId: LIFF_ID });
+    function getSiteFromUrl() {
+      const url = new URL(window.location.href);
+      return (url.searchParams.get('site') || '').trim();
+    }
 
-  if(!liff.isLoggedIn()){
-    liff.login();
-    return;
-  }
+    async function sendRecord(payload) {
+      const response = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(payload)
+      });
+      return await response.json();
+    }
 
-  const p = await liff.getProfile();
-  profile.displayName = p.displayName;
-  profile.userId = p.userId;
+    async function initApp() {
+      try {
+        const site = getSiteFromUrl();
 
-  show('準備完成，開始掃描');
+        if (!site) {
+          setStatus('網址缺少 site 參數', 'err');
+          return;
+        }
 
-  startScanLoop();
-}
+        const pointName = POINT_NAME_MAP[site] || site;
 
-init();
-</script>
+        await liff.init({ liffId: LIFF_ID });
 
+        if (!liff.isLoggedIn()) {
+          liff.login();
+          return;
+        }
+
+        const profile = await liff.getProfile();
+
+        infoBox.innerHTML = `
+          <div><b>巡場點：</b>${escapeHtml(pointName)}</div>
+          <div><b>LINE名稱：</b>${escapeHtml(profile.displayName || '')}</div>
+        `;
+
+        setStatus('記錄中...');
+
+        const payload = {
+          displayName: profile.displayName || '',
+          userId: profile.userId || '',
+          siteCode: site,
+          siteName: pointName,
+          status: '成功',
+          note: ''
+        };
+
+        const res = await sendRecord(payload);
+
+        if (res.ok) {
+          setStatus('已記錄：' + pointName, 'ok');
+        } else {
+          setStatus('寫入失敗：' + (res.message || '未知錯誤'), 'err');
+        }
+
+      } catch (err) {
+        setStatus('處理失敗：' + (err.message || String(err)), 'err');
+      }
+    }
+
+    initApp();
+  </script>
 </body>
 </html>
