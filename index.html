@@ -6,44 +6,113 @@
   <title>巡場打卡</title>
   <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
   <style>
+    * {
+      box-sizing: border-box;
+    }
+
     body {
       margin: 0;
       font-family: Arial, "Microsoft JhengHei", sans-serif;
-      background: #f4f6f8;
+      background: #f3f4f6;
       color: #222;
     }
+
     .wrap {
-      max-width: 520px;
+      max-width: 560px;
       margin: 0 auto;
-      padding: 20px;
+      padding: 24px 16px;
     }
+
     .card {
       background: #fff;
-      border-radius: 16px;
-      padding: 20px;
-      margin-top: 20px;
-      box-shadow: 0 6px 24px rgba(0, 0, 0, 0.08);
+      border-radius: 18px;
+      padding: 24px;
+      margin-top: 24px;
+      box-shadow: 0 8px 28px rgba(0, 0, 0, 0.08);
     }
+
     h1 {
-      margin: 0 0 16px;
-      font-size: 24px;
+      margin: 0 0 18px;
       text-align: center;
+      font-size: 24px;
+      font-weight: 700;
     }
+
     .box {
-      border-radius: 12px;
-      padding: 14px;
-      margin-top: 12px;
-      line-height: 1.6;
+      border-radius: 14px;
+      padding: 16px;
+      margin-top: 14px;
+      line-height: 1.8;
       word-break: break-word;
-      background: #f2f4f7;
+      background: #f1f5f9;
+      font-size: 16px;
     }
-    .ok {
-      background: #e9f9ee;
-      color: #156f3d;
+
+    .status-ok {
+      background: #e8f8ec;
+      color: #13653a;
     }
-    .err {
+
+    .status-err {
       background: #fdecec;
-      color: #9f1d1d;
+      color: #a32121;
+    }
+
+    .status-warn {
+      background: #fff6db;
+      color: #7a5b00;
+    }
+
+    .title {
+      font-weight: 700;
+      margin-right: 8px;
+    }
+
+    .small {
+      margin-top: 14px;
+      text-align: center;
+      color: #666;
+      font-size: 13px;
+      line-height: 1.7;
+    }
+
+    .big-success {
+      text-align: center;
+      font-size: 28px;
+      font-weight: 700;
+      letter-spacing: 1px;
+    }
+
+    .hidden {
+      display: none;
+    }
+
+    .spinner {
+      display: inline-block;
+      width: 18px;
+      height: 18px;
+      border: 3px solid rgba(0,0,0,0.15);
+      border-top-color: rgba(0,0,0,0.55);
+      border-radius: 50%;
+      animation: spin 0.9s linear infinite;
+      vertical-align: middle;
+      margin-right: 8px;
+    }
+
+    @keyframes spin {
+      to { transform: rotate(360deg); }
+    }
+
+    .footer-btn {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px 16px;
+      margin-top: 14px;
+      font-size: 16px;
+      cursor: pointer;
+      background: #111827;
+      color: white;
     }
   </style>
 </head>
@@ -51,15 +120,29 @@
   <div class="wrap">
     <div class="card">
       <h1>巡場打卡</h1>
-      <div id="infoBox" class="box">載入中...</div>
-      <div id="statusBox" class="box">請稍候...</div>
+
+      <div id="infoBox" class="box">
+        <span class="spinner"></span>載入中...
+      </div>
+
+      <div id="statusBox" class="box status-warn">
+        系統初始化中...
+      </div>
+
+      <div class="small">
+        請由 NFC 開啟本頁，系統會自動辨識巡場點並記錄
+      </div>
+
+      <button id="closeBtn" class="footer-btn hidden">關閉頁面</button>
     </div>
   </div>
 
   <script>
+    // ===== 你要修改的兩個地方 =====
     const LIFF_ID = '2009742928-hAmPBkaF';
     const GAS_URL = 'https://script.google.com/macros/s/AKfycbwMS-csTNSPXa53FmHGD6U5H7wUbAi77316Jnr-Zibz2TrqOY-WQ_3zAM5IttlEc2ay6Q/exec';
 
+    // ===== 巡場點對照 =====
     const POINT_NAME_MAP = {
       'A1_STAIR': 'A1樓梯',
       'A2_STAIR': 'A2樓梯',
@@ -75,12 +158,9 @@
 
     const infoBox = document.getElementById('infoBox');
     const statusBox = document.getElementById('statusBox');
+    const closeBtn = document.getElementById('closeBtn');
 
-    function setStatus(message, type = '') {
-      statusBox.className = 'box';
-      if (type) statusBox.classList.add(type);
-      statusBox.textContent = message;
-    }
+    let hasSubmitted = false;
 
     function escapeHtml(str) {
       return String(str)
@@ -91,9 +171,67 @@
         .replaceAll("'", '&#039;');
     }
 
-    function getSiteFromUrl() {
-      const url = new URL(window.location.href);
-      return (url.searchParams.get('site') || '').trim();
+    function setInfo(html) {
+      infoBox.innerHTML = html;
+    }
+
+    function setStatus(message, type = 'warn') {
+      statusBox.className = 'box';
+      if (type === 'ok') statusBox.classList.add('status-ok');
+      if (type === 'err') statusBox.classList.add('status-err');
+      if (type === 'warn') statusBox.classList.add('status-warn');
+      statusBox.innerHTML = message;
+    }
+
+    function getCurrentUrlSite() {
+      try {
+        const url = new URL(window.location.href);
+        const site = url.searchParams.get('site');
+        return site ? site.trim() : '';
+      } catch (e) {
+        return '';
+      }
+    }
+
+    function getSiteFromLiffState() {
+      try {
+        const url = new URL(window.location.href);
+        const liffState = url.searchParams.get('liff.state');
+        if (!liffState) return '';
+
+        const decoded = decodeURIComponent(liffState);
+        const stateUrl = new URL(decoded, window.location.origin);
+        const site = stateUrl.searchParams.get('site');
+        return site ? site.trim() : '';
+      } catch (e) {
+        console.error('解析 liff.state 失敗', e);
+        return '';
+      }
+    }
+
+    function getSiteCode() {
+      // 1. 先讀目前網址
+      let site = getCurrentUrlSite();
+      if (site) return site;
+
+      // 2. 再讀 liff.state
+      site = getSiteFromLiffState();
+      if (site) return site;
+
+      // 3. 最後讀 sessionStorage 備份
+      try {
+        site = sessionStorage.getItem('patrol_site') || '';
+        if (site) return site.trim();
+      } catch (e) {}
+
+      return '';
+    }
+
+    function saveSiteCode(site) {
+      if (!site) return;
+      try {
+        sessionStorage.setItem('patrol_site', site);
+      } catch (e) {}
     }
 
     async function sendRecord(payload) {
@@ -107,16 +245,30 @@
       return await response.json();
     }
 
+    function getOpenContext() {
+      try {
+        if (typeof liff !== 'undefined') {
+          return {
+            isInClient: liff.isInClient(),
+            os: liff.getOS ? liff.getOS() : '',
+            language: liff.getLanguage ? liff.getLanguage() : ''
+          };
+        }
+      } catch (e) {}
+      return {
+        isInClient: false,
+        os: '',
+        language: ''
+      };
+    }
+
     async function initApp() {
       try {
-        const site = getSiteFromUrl();
-
-        if (!site) {
-          setStatus('網址缺少 site 參數', 'err');
-          return;
+        // 初始化前先抓一次，避免 login redirect 後遺失
+        let siteCode = getSiteCode();
+        if (siteCode) {
+          saveSiteCode(siteCode);
         }
-
-        const pointName = POINT_NAME_MAP[site] || site;
 
         await liff.init({ liffId: LIFF_ID });
 
@@ -125,36 +277,81 @@
           return;
         }
 
+        // init / login 後再抓一次
+        siteCode = getSiteCode();
+
+        if (!siteCode) {
+          setInfo(`
+            <div><span class="title">目前網址</span>${escapeHtml(window.location.href)}</div>
+          `);
+          setStatus('網址缺少 site 參數', 'err');
+          closeBtn.classList.remove('hidden');
+          return;
+        }
+
+        const pointName = POINT_NAME_MAP[siteCode] || siteCode;
         const profile = await liff.getProfile();
+        const ctx = getOpenContext();
 
-        infoBox.innerHTML = `
-          <div><b>巡場點：</b>${escapeHtml(pointName)}</div>
-          <div><b>LINE名稱：</b>${escapeHtml(profile.displayName || '')}</div>
-        `;
+        setInfo(`
+          <div><span class="title">巡場點</span>${escapeHtml(pointName)}</div>
+          <div><span class="title">LINE名稱</span>${escapeHtml(profile.displayName || '')}</div>
+          <div><span class="title">userId</span>${escapeHtml(profile.userId || '')}</div>
+        `);
 
-        setStatus('記錄中...');
+        if (hasSubmitted) {
+          setStatus('此頁面已送出過紀錄', 'warn');
+          closeBtn.classList.remove('hidden');
+          return;
+        }
+
+        setStatus('<span class="spinner"></span>記錄中...', 'warn');
 
         const payload = {
           displayName: profile.displayName || '',
           userId: profile.userId || '',
-          siteCode: site,
+          siteCode: siteCode,
           siteName: pointName,
           status: '成功',
-          note: ''
+          note: '',
+          pageUrl: window.location.href,
+          isInClient: ctx.isInClient ? 'Y' : 'N',
+          os: ctx.os || '',
+          language: ctx.language || ''
         };
 
         const res = await sendRecord(payload);
 
-        if (res.ok) {
-          setStatus('已記錄：' + pointName, 'ok');
-        } else {
-          setStatus('寫入失敗：' + (res.message || '未知錯誤'), 'err');
+        if (!res.ok) {
+          throw new Error(res.message || '寫入失敗');
         }
 
+        hasSubmitted = true;
+
+        setInfo(`
+          <div class="big-success">打卡成功</div>
+          <div style="margin-top:12px; text-align:center;">${escapeHtml(pointName)}</div>
+          <div style="margin-top:8px; text-align:center;">${escapeHtml(profile.displayName || '')}</div>
+        `);
+
+        setStatus('已成功記錄到試算表', 'ok');
+
       } catch (err) {
-        setStatus('處理失敗：' + (err.message || String(err)), 'err');
+        console.error(err);
+        setStatus('處理失敗：' + escapeHtml(err.message || String(err)), 'err');
+        closeBtn.classList.remove('hidden');
       }
     }
+
+    closeBtn.addEventListener('click', () => {
+      try {
+        if (typeof liff !== 'undefined' && liff.isInClient()) {
+          liff.closeWindow();
+          return;
+        }
+      } catch (e) {}
+      window.close();
+    });
 
     initApp();
   </script>
