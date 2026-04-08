@@ -1,0 +1,222 @@
+<!DOCTYPE html>
+<html lang="zh-Hant">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>巡場點掃描</title>
+  <script src="https://static.line-scdn.net/liff/edge/2/sdk.js"></script>
+  <style>
+    body {
+      font-family: Arial, "Microsoft JhengHei", sans-serif;
+      max-width: 480px;
+      margin: 0 auto;
+      padding: 24px;
+      background: #f7f7f7;
+      color: #222;
+    }
+    .card {
+      background: white;
+      border-radius: 14px;
+      padding: 20px;
+      box-shadow: 0 4px 20px rgba(0,0,0,0.08);
+    }
+    h1 {
+      font-size: 22px;
+      margin-top: 0;
+    }
+    .info {
+      margin: 10px 0;
+      padding: 12px;
+      background: #f2f4f7;
+      border-radius: 10px;
+      word-break: break-all;
+    }
+    button {
+      width: 100%;
+      border: 0;
+      border-radius: 12px;
+      padding: 14px;
+      font-size: 18px;
+      cursor: pointer;
+      margin-top: 12px;
+    }
+    .btn-primary {
+      background: #06c755;
+      color: white;
+    }
+    .btn-secondary {
+      background: #e9ecef;
+      color: #222;
+    }
+    .status {
+      margin-top: 14px;
+      padding: 12px;
+      border-radius: 10px;
+      background: #fff8db;
+      min-height: 24px;
+    }
+    .ok {
+      background: #e8fff0;
+    }
+    .err {
+      background: #ffe8e8;
+    }
+  </style>
+</head>
+<body>
+  <div class="card">
+    <h1>巡場點掃描</h1>
+
+    <div class="info" id="profileBox">載入中...</div>
+
+    <button class="btn-primary" id="scanBtn">掃描 QR</button>
+    <button class="btn-secondary" id="closeBtn" style="display:none;">關閉頁面</button>
+
+    <div class="status" id="statusBox">請點擊掃描 QR</div>
+  </div>
+
+  <script>
+    const LIFF_ID = '把你的LIFF_ID貼這裡';
+    const GAS_URL = '把你的Apps Script Web App URL貼這裡';
+
+    // 每個 QR 固定亂碼 -> 巡場點代碼
+    const QR_MAP = {
+      'a8XQ-91Lm-K2p': 'A01',
+      'b7TR-44Qa-Z9n': 'A02',
+      'k2PP-77Yu-M5c': 'B01',
+      'm3YU-20Re-T8v': 'B02',
+      'z9DD-55Ax-P1q': 'C01'
+    };
+
+    let currentProfile = {
+      displayName: '',
+      userId: ''
+    };
+
+    const profileBox = document.getElementById('profileBox');
+    const statusBox = document.getElementById('statusBox');
+    const scanBtn = document.getElementById('scanBtn');
+    const closeBtn = document.getElementById('closeBtn');
+
+    function setStatus(message, type = '') {
+      statusBox.className = 'status';
+      if (type) statusBox.classList.add(type);
+      statusBox.textContent = message;
+    }
+
+    function decodeQrString(raw) {
+      return QR_MAP[raw] || null;
+    }
+
+    async function initLiff() {
+      await liff.init({ liffId: LIFF_ID });
+
+      if (!liff.isLoggedIn()) {
+        liff.login();
+        return;
+      }
+
+      const profile = await liff.getProfile();
+      currentProfile.displayName = profile.displayName || '';
+      currentProfile.userId = profile.userId || '';
+
+      profileBox.innerHTML = `
+        <div><b>LINE名稱：</b>${escapeHtml(currentProfile.displayName)}</div>
+        <div><b>userId：</b>${escapeHtml(currentProfile.userId)}</div>
+      `;
+
+      setStatus('請點擊掃描 QR');
+    }
+
+    function escapeHtml(str) {
+      return String(str)
+        .replaceAll('&', '&amp;')
+        .replaceAll('<', '&lt;')
+        .replaceAll('>', '&gt;')
+        .replaceAll('"', '&quot;')
+        .replaceAll("'", '&#039;');
+    }
+
+    async function scanQr() {
+      try {
+        setStatus('掃描中...');
+
+        if (!liff.scanCodeV2) {
+          throw new Error('目前環境不支援 liff.scanCodeV2');
+        }
+
+        const result = await liff.scanCodeV2();
+        const qrRaw = (result && result.value) ? result.value.trim() : '';
+
+        if (!qrRaw) {
+          setStatus('沒有掃到內容', 'err');
+          return;
+        }
+
+        const decodedPoint = decodeQrString(qrRaw);
+
+        if (!decodedPoint) {
+          await sendRecord({
+            displayName: currentProfile.displayName,
+            userId: currentProfile.userId,
+            qrRaw,
+            decodedPoint: '',
+            status: '失敗',
+            note: '查無對應巡場點'
+          });
+
+          setStatus(`查無對應巡場點，原始字串：${qrRaw}`, 'err');
+          return;
+        }
+
+        const payload = {
+          displayName: currentProfile.displayName,
+          userId: currentProfile.userId,
+          qrRaw,
+          decodedPoint,
+          status: '成功',
+          note: ''
+        };
+
+        const res = await sendRecord(payload);
+
+        if (res.ok) {
+          setStatus(`已記錄：${decodedPoint}`, 'ok');
+          closeBtn.style.display = 'block';
+        } else {
+          setStatus(`寫入失敗：${res.message || '未知錯誤'}`, 'err');
+        }
+
+      } catch (err) {
+        setStatus(`掃描失敗：${err.message}`, 'err');
+      }
+    }
+
+    async function sendRecord(payload) {
+      const response = await fetch(GAS_URL, {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'text/plain;charset=utf-8'
+        },
+        body: JSON.stringify(payload)
+      });
+
+      return await response.json();
+    }
+
+    scanBtn.addEventListener('click', scanQr);
+
+    closeBtn.addEventListener('click', () => {
+      if (liff.isInClient()) {
+        liff.closeWindow();
+      } else {
+        window.close();
+      }
+    });
+
+    initLiff().catch(err => {
+      setStatus(`LIFF 初始化失敗：${err.message}`, 'err');
+    });
+  </script>
+</body>
+</html>
